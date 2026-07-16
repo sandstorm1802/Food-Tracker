@@ -49,7 +49,7 @@ function dateLabel(key) {
 }
 
 function timeLabel(iso) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function toLocalDatetimeValue(d) {
