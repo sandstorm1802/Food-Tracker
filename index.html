@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Field Log — Food Journal</title>
+<link rel="stylesheet" href="styles.css?v=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Login screen -->
+  <div id="login-screen" class="screen">
+    <div class="login-card">
+      <h1 class="font-display">Field Log</h1>
+      <p class="font-mono muted">Sign in to sync your log across devices.</p>
+      <form id="login-form">
+        <input type="email" id="login-email" placeholder="Email" required autocomplete="username" />
+        <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password" />
+        <button type="submit" class="btn-primary">Sign in</button>
+      </form>
+      <button id="signup-toggle" class="link-btn font-mono">First time? Create an account</button>
+      <p id="login-error" class="error-text font-mono"></p>
+    </div>
+  </div>
+
+  <!-- Main app -->
+  <div id="app-screen" class="screen hidden">
+    <header class="header">
+      <div class="header-row">
+        <h1 class="font-display">Field Log</h1>
+        <div class="header-right">
+          <span id="entry-count" class="pill font-mono">0 entries</span>
+          <button id="logout-btn" class="link-btn font-mono">Sign out</button>
+        </div>
+      </div>
+
+      <div class="search-row">
+        <input id="search-input" class="font-mono" type="text" placeholder="Search meals, places, notes…" />
+      </div>
+
+      <div id="meal-filters" class="chip-row"></div>
+
+      <div id="target-display" class="target-row font-mono"></div>
+    </header>
+
+    <main id="entry-list" class="entry-list"></main>
+
+    <div id="add-form-wrap" class="add-form-wrap hidden">
+      <form id="add-form" class="add-form">
+        <div class="form-head">
+          <span class="font-mono eyebrow">New entry</span>
+          <button type="button" id="close-form" class="icon-btn">✕</button>
+        </div>
+        <input id="field-name" class="font-display field-name" type="text" placeholder="What did you eat?" required />
+        <div id="meal-select" class="chip-row"></div>
+        <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
+        <input id="field-calories" class="font-mono" type="text" inputmode="numeric" placeholder="Calories, from the label (optional)" />
+        <textarea id="field-notes" class="font-mono" rows="2" placeholder="Notes — how was it, what was in it…"></textarea>
+        <button type="submit" class="btn-primary">Log it</button>
+      </form>
+    </div>
+
+    <button id="add-btn" class="fab">+</button>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script src="firebase-config.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
