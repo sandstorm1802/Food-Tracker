@@ -9,12 +9,12 @@
 window.firebaseReady = false;
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyASRcYbHon6f6-n4WkMuNi9ylyn_gXpmUU",
+  authDomain: "food-tracker-59707.firebaseapp.com",
+  projectId: "food-tracker-59707",
+  storageBucket: "food-tracker-59707.firebasestorage.app",
+  messagingSenderId: "185020737561",
+  appId: "1:185020737561:web:1ef0e750b7fe36421aa288",
 };
 
 try {
