@@ -52,9 +52,14 @@ function timeLabel(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function toLocalDatetimeValue(d) {
+function toLocalDateValue(d) {
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function toLocalTimeValue(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ---------- Auth ----------
@@ -396,7 +401,9 @@ function openForm(entryToEdit) {
     submitBtn.textContent = "Save changes";
     selectedMeal = entryToEdit.meal;
     $("field-name").value = entryToEdit.name || "";
-    $("field-datetime").value = toLocalDatetimeValue(new Date(entryToEdit.timestamp));
+    const d = new Date(entryToEdit.timestamp);
+    $("field-date").value = toLocalDateValue(d);
+    $("field-time").value = toLocalTimeValue(d);
     $("field-location").value = entryToEdit.location || "";
     $("field-calories").value = typeof entryToEdit.calories === "number" ? entryToEdit.calories : "";
     $("field-notes").value = entryToEdit.notes || "";
@@ -405,7 +412,9 @@ function openForm(entryToEdit) {
     submitBtn.textContent = "Log it";
     selectedMeal = guessMeal();
     $("add-form").reset();
-    $("field-datetime").value = toLocalDatetimeValue(new Date());
+    const now = new Date();
+    $("field-date").value = toLocalDateValue(now);
+    $("field-time").value = toLocalTimeValue(now);
   }
 
   renderMealSelect();
@@ -429,8 +438,27 @@ function initForm() {
     submitBtn.textContent = wasEditing ? "Saving…" : "Stamping…";
 
     const caloriesRaw = $("field-calories").value.trim();
-    const dtRaw = $("field-datetime").value;
-    const timestamp = dtRaw ? new Date(dtRaw).toISOString() : new Date().toISOString();
+    const dateRaw = $("field-date").value;
+    const timeRaw = $("field-time").value.trim();
+
+    if (!/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeRaw)) {
+      alert("Time must be in 24-hour HH:MM format, e.g. 06:46 or 18:46.");
+      submitBtn.disabled = false;
+      submitBtn.textContent = wasEditing ? "Save changes" : "Log it";
+      return;
+    }
+
+    const [hh, mm] = timeRaw.split(":").map(Number);
+    let timestamp;
+    if (dateRaw) {
+      const [y, mo, da] = dateRaw.split("-").map(Number);
+      timestamp = new Date(y, mo - 1, da, hh, mm).toISOString();
+    } else {
+      const now = new Date();
+      now.setHours(hh, mm, 0, 0);
+      timestamp = now.toISOString();
+    }
+
     const entry = {
       name,
       meal: selectedMeal,
@@ -458,6 +486,14 @@ function initForm() {
 
   $("field-calories").addEventListener("input", (e) => {
     e.target.value = e.target.value.replace(/[^0-9]/g, "");
+  });
+
+  $("field-time").addEventListener("input", (e) => {
+    let digits = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+    if (digits.length >= 3) {
+      digits = digits.slice(0, 2) + ":" + digits.slice(2);
+    }
+    e.target.value = digits;
   });
 }
 

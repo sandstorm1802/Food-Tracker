@@ -266,7 +266,7 @@ h1.font-display {
   background: transparent;
   color: var(--ink);
 }
-.add-form input[type="text"], .add-form input[type="datetime-local"], .add-form textarea {
+.add-form input[type="text"], .add-form input[type="datetime-local"], .add-form input[type="date"], .add-form textarea {
   font-size: 0.85rem;
   border: none;
   border-bottom: 1px solid var(--line);
@@ -275,6 +275,9 @@ h1.font-display {
   color: var(--ink);
   resize: none;
 }
+.datetime-row { display: flex; gap: 12px; }
+.datetime-row input[type="date"] { flex: 1.4; }
+.datetime-row input#field-time { flex: 1; }
 .add-form input::placeholder, .add-form textarea::placeholder, .login-card input::placeholder { color: #B8AE8E; }
 
 .btn-primary {

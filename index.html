@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Field Log — Food Journal</title>
-<link rel="stylesheet" href="styles.css?v=3" />
+<link rel="stylesheet" href="styles.css?v=4" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -56,7 +56,10 @@
         </div>
         <input id="field-name" class="font-display field-name" type="text" placeholder="What did you eat?" required />
         <div id="meal-select" class="chip-row"></div>
-        <input id="field-datetime" class="font-mono" type="datetime-local" />
+        <div class="datetime-row">
+          <input id="field-date" class="font-mono" type="date" />
+          <input id="field-time" class="font-mono" type="text" inputmode="numeric" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5" />
+        </div>
         <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
         <input id="field-calories" class="font-mono" type="text" inputmode="numeric" placeholder="Calories, from the label (optional)" />
         <textarea id="field-notes" class="font-mono" rows="2" placeholder="Notes — how was it, what was in it…"></textarea>
@@ -73,6 +76,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script src="firebase-config.js?v=2"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
