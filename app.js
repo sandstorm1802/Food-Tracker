@@ -322,6 +322,51 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---------- Export ----------
+
+function csvEscape(val) {
+  const s = String(val ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportCsv() {
+  if (!entries.length) {
+    alert("No entries to export yet.");
+    return;
+  }
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const headers = ["Date", "Time", "Meal", "Food", "Calories", "Location", "Notes"];
+  const rows = sorted.map((en) => {
+    const d = new Date(en.timestamp);
+    return [
+      dateKey(d),
+      timeLabel(en.timestamp),
+      mealMeta(en.meal).label,
+      en.name || "",
+      typeof en.calories === "number" ? en.calories : "",
+      en.location || "",
+      en.notes || "",
+    ].map(csvEscape).join(",");
+  });
+  const csv = [headers.join(","), ...rows].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `field-log-export-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function initExport() {
+  $("export-btn").addEventListener("click", exportCsv);
+}
+
 // ---------- Form wiring ----------
 
 function initForm() {
@@ -388,4 +433,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initAuth();
   initForm();
   initSearch();
+  initExport();
 });
