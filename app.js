@@ -6,6 +6,7 @@ const MEAL_TYPES = [
   { id: "lunch", label: "Lunch", icon: "🥪" },
   { id: "dinner", label: "Dinner", icon: "🍽" },
   { id: "snack", label: "Snack", icon: "🍪" },
+  { id: "drink", label: "Drink", icon: "🍹" },
 ];
 
 let currentUser = null;
@@ -49,6 +50,11 @@ function dateLabel(key) {
 
 function timeLabel(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function toLocalDatetimeValue(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ---------- Auth ----------
@@ -130,6 +136,11 @@ function attachListeners(uid) {
 async function addEntry(entry) {
   const ref = window.db.collection("users").doc(currentUser.uid).collection("entries");
   await ref.add(entry);
+}
+
+async function updateEntry(id, entry) {
+  const ref = window.db.collection("users").doc(currentUser.uid).collection("entries").doc(id);
+  await ref.update(entry);
 }
 
 async function deleteEntry(id) {
@@ -298,7 +309,10 @@ function render() {
         <div class="stub-body">
           <div class="stub-top">
             <div><span class="stub-meal-icon">${meta.icon}</span><span class="stub-name font-display">${escapeHtml(en.name)}</span></div>
-            <button class="delete-btn" title="Delete">🗑</button>
+            <div class="stub-actions">
+              <button class="edit-btn" title="Edit">✎</button>
+              <button class="delete-btn" title="Delete">🗑</button>
+            </div>
           </div>
           <div class="stub-meta font-mono">
             <span>${timeLabel(en.timestamp)}</span>
@@ -309,6 +323,7 @@ function render() {
         </div>
       `;
       stub.querySelector(".delete-btn").onclick = () => deleteEntry(en.id);
+      stub.querySelector(".edit-btn").onclick = () => openForm(en);
       group.appendChild(stub);
     });
 
@@ -369,14 +384,38 @@ function initExport() {
 
 // ---------- Form wiring ----------
 
-function initForm() {
-  $("add-btn").addEventListener("click", () => {
+let editingId = null;
+
+function openForm(entryToEdit) {
+  editingId = entryToEdit ? entryToEdit.id : null;
+  const submitBtn = $("add-form").querySelector("button[type=submit]");
+  const eyebrow = $("add-form").querySelector(".eyebrow");
+
+  if (entryToEdit) {
+    eyebrow.textContent = "Edit entry";
+    submitBtn.textContent = "Save changes";
+    selectedMeal = entryToEdit.meal;
+    $("field-name").value = entryToEdit.name || "";
+    $("field-datetime").value = toLocalDatetimeValue(new Date(entryToEdit.timestamp));
+    $("field-location").value = entryToEdit.location || "";
+    $("field-calories").value = typeof entryToEdit.calories === "number" ? entryToEdit.calories : "";
+    $("field-notes").value = entryToEdit.notes || "";
+  } else {
+    eyebrow.textContent = "New entry";
+    submitBtn.textContent = "Log it";
     selectedMeal = guessMeal();
-    renderMealSelect();
-    $("add-form-wrap").classList.remove("hidden");
-    $("add-btn").classList.add("hidden");
-    $("field-name").focus();
-  });
+    $("add-form").reset();
+    $("field-datetime").value = toLocalDatetimeValue(new Date());
+  }
+
+  renderMealSelect();
+  $("add-form-wrap").classList.remove("hidden");
+  $("add-btn").classList.add("hidden");
+  $("field-name").focus();
+}
+
+function initForm() {
+  $("add-btn").addEventListener("click", () => openForm(null));
 
   $("close-form").addEventListener("click", closeForm);
 
@@ -385,28 +424,35 @@ function initForm() {
     const name = $("field-name").value.trim();
     if (!name) return;
     const submitBtn = e.target.querySelector("button[type=submit]");
+    const wasEditing = !!editingId;
     submitBtn.disabled = true;
-    submitBtn.textContent = "Stamping…";
+    submitBtn.textContent = wasEditing ? "Saving…" : "Stamping…";
 
     const caloriesRaw = $("field-calories").value.trim();
+    const dtRaw = $("field-datetime").value;
+    const timestamp = dtRaw ? new Date(dtRaw).toISOString() : new Date().toISOString();
     const entry = {
       name,
       meal: selectedMeal,
       location: $("field-location").value.trim(),
       notes: $("field-notes").value.trim(),
       calories: caloriesRaw ? Number(caloriesRaw.replace(/[^0-9]/g, "")) : null,
-      timestamp: new Date().toISOString(),
+      timestamp,
     };
 
     try {
-      await addEntry(entry);
+      if (wasEditing) {
+        await updateEntry(editingId, entry);
+      } else {
+        await addEntry(entry);
+      }
       $("add-form").reset();
       closeForm();
     } catch (err) {
       alert("Couldn't save entry: " + err.message);
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = "Log it";
+      submitBtn.textContent = wasEditing ? "Save changes" : "Log it";
     }
   });
 
@@ -416,6 +462,7 @@ function initForm() {
 }
 
 function closeForm() {
+  editingId = null;
   $("add-form-wrap").classList.add("hidden");
   $("add-btn").classList.remove("hidden");
 }
