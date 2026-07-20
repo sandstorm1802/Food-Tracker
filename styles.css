@@ -280,7 +280,7 @@ h1.font-display {
 .datetime-row input#field-time { flex: 1; }
 .add-form input::placeholder, .add-form textarea::placeholder, .login-card input::placeholder { color: #B8AE8E; }
 .location-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
-.location-row input { flex: 1; border-bottom: none !important; }
+.location-row input { flex: 1; min-width: 0; border-bottom: none !important; }
 .location-row .icon-btn { font-size: 0.95rem; padding: 4px; flex-shrink: 0; }
 .location-row .icon-btn:disabled { opacity: 0.4; }
 
