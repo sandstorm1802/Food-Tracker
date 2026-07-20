@@ -428,6 +428,8 @@ function initForm() {
 
   $("close-form").addEventListener("click", closeForm);
 
+  $("gps-btn").addEventListener("click", useCurrentLocation);
+
   $("add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("field-name").value.trim();
@@ -501,6 +503,51 @@ function closeForm() {
   editingId = null;
   $("add-form-wrap").classList.add("hidden");
   $("add-btn").classList.remove("hidden");
+}
+
+function useCurrentLocation() {
+  const btn = $("gps-btn");
+  if (!navigator.geolocation) {
+    alert("This browser doesn't support location lookup.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "⏳";
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const { latitude, longitude } = pos.coords;
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=14`
+        );
+        const data = await res.json();
+        const a = data.address || {};
+        const place =
+          a.neighbourhood || a.suburb || a.village || a.town || a.city || a.county || null;
+        const region = a.state || a.country || null;
+        const label = place && region ? `${place}, ${region}` : (place || region || data.display_name);
+        $("field-location").value = label || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+      } catch (err) {
+        // Fall back to raw coordinates if the geocoding lookup fails
+        $("field-location").value = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "📍";
+      }
+    },
+    (err) => {
+      btn.disabled = false;
+      btn.textContent = "📍";
+      if (err.code === err.PERMISSION_DENIED) {
+        alert("Location permission was denied. You can enable it in your browser/phone settings, or just type a location manually.");
+      } else {
+        alert("Couldn't get your location: " + err.message);
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
 }
 
 function initSearch() {

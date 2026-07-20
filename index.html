@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=1" />
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png?v=1" />
 
-<link rel="stylesheet" href="styles.css?v=4" />
+<link rel="stylesheet" href="styles.css?v=5" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -76,7 +76,10 @@
           <input id="field-date" class="font-mono" type="date" />
           <input id="field-time" class="font-mono" type="text" inputmode="numeric" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5" />
         </div>
-        <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
+        <div class="location-row">
+          <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
+          <button type="button" id="gps-btn" class="icon-btn" title="Use current location">📍</button>
+        </div>
         <input id="field-calories" class="font-mono" type="text" inputmode="numeric" placeholder="Calories, from the label (optional)" />
         <textarea id="field-notes" class="font-mono" rows="2" placeholder="Notes — how was it, what was in it…"></textarea>
         <button type="submit" class="btn-primary">Log it</button>
@@ -92,7 +95,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script src="firebase-config.js?v=2"></script>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
