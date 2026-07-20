@@ -520,14 +520,22 @@ function useCurrentLocation() {
       const { latitude, longitude } = pos.coords;
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=14`
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&namedetails=1`
         );
         const data = await res.json();
         const a = data.address || {};
-        const place =
-          a.neighbourhood || a.suburb || a.village || a.town || a.city || a.county || null;
+        const businessName = data.name || (data.namedetails && data.namedetails.name) || null;
+        const place = a.neighbourhood || a.suburb || a.village || a.town || a.city || a.county || null;
         const region = a.state || a.country || null;
-        const label = place && region ? `${place}, ${region}` : (place || region || data.display_name);
+
+        let label;
+        if (businessName) {
+          label = place || region ? `${businessName}, ${place || region}` : businessName;
+        } else if (place && region) {
+          label = `${place}, ${region}`;
+        } else {
+          label = place || region || data.display_name;
+        }
         $("field-location").value = label || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
       } catch (err) {
         // Fall back to raw coordinates if the geocoding lookup fails
