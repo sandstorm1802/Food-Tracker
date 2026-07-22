@@ -323,6 +323,7 @@ function render() {
             <span>${timeLabel(en.timestamp)}</span>
             ${en.location ? `<span>📍 ${escapeHtml(en.location)}</span>` : ""}
             ${typeof en.calories === "number" ? `<span>${en.calories} cal</span>` : ""}
+            ${en.portion ? `<span>${escapeHtml(en.portion)}</span>` : ""}
           </div>
           ${en.notes ? `<div class="stub-notes">${escapeHtml(en.notes)}</div>` : ""}
         </div>
@@ -356,7 +357,7 @@ function exportCsv() {
     return;
   }
   const sorted = [...entries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  const headers = ["Date", "Time", "Meal", "Food", "Calories", "Location", "Notes"];
+  const headers = ["Date", "Time", "Meal", "Food", "Portion", "Calories", "Location", "Notes"];
   const rows = sorted.map((en) => {
     const d = new Date(en.timestamp);
     return [
@@ -364,6 +365,7 @@ function exportCsv() {
       timeLabel(en.timestamp),
       mealMeta(en.meal).label,
       en.name || "",
+      en.portion || "",
       typeof en.calories === "number" ? en.calories : "",
       en.location || "",
       en.notes || "",
@@ -406,6 +408,7 @@ function openForm(entryToEdit) {
     $("field-time").value = toLocalTimeValue(d);
     $("field-location").value = entryToEdit.location || "";
     $("field-calories").value = typeof entryToEdit.calories === "number" ? entryToEdit.calories : "";
+    $("field-portion").value = entryToEdit.portion || "";
     $("field-notes").value = entryToEdit.notes || "";
   } else {
     eyebrow.textContent = "New entry";
@@ -466,6 +469,7 @@ function initForm() {
       meal: selectedMeal,
       location: $("field-location").value.trim(),
       notes: $("field-notes").value.trim(),
+      portion: $("field-portion").value.trim(),
       calories: caloriesRaw ? Number(caloriesRaw.replace(/[^0-9]/g, "")) : null,
       timestamp,
     };
@@ -507,9 +511,11 @@ function closeForm() {
 
 async function tryGooglePlaces(lat, lng) {
   if (typeof GOOGLE_PLACES_API_KEY === "undefined" || !GOOGLE_PLACES_API_KEY || GOOGLE_PLACES_API_KEY.startsWith("YOUR_")) {
-    return null; // not configured, skip silently
+    debugLog("Google Places: not configured, skipping", "err");
+    return null;
   }
   try {
+    debugLog("Google Places: sending request…");
     const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
       method: "POST",
       headers: {
@@ -525,48 +531,85 @@ async function tryGooglePlaces(lat, lng) {
         },
       }),
     });
-    if (!res.ok) return null;
+    debugLog(`Google Places: HTTP ${res.status}`, res.ok ? "ok" : "err");
+    if (!res.ok) {
+      const errBody = await res.text();
+      debugLog(`Google Places error body: ${errBody.slice(0, 300)}`, "err");
+      return null;
+    }
     const data = await res.json();
     const place = data.places && data.places[0];
-    if (!place) return null;
+    if (!place) {
+      debugLog("Google Places: 0 results within 75m", "err");
+      return null;
+    }
     const name = place.displayName && place.displayName.text;
-    if (!name) return null;
-    // Pull a short city from the formatted address, if present.
+    if (!name) {
+      debugLog("Google Places: result had no name", "err");
+      return null;
+    }
+    debugLog(`Google Places: found "${name}"`, "ok");
     const addressParts = (place.formattedAddress || "").split(",").map((s) => s.trim());
     const cityGuess = addressParts.length >= 3 ? addressParts[addressParts.length - 3] : null;
     return cityGuess ? `${name}, ${cityGuess}` : name;
   } catch (err) {
-    return null; // fail silently, Nominatim fallback will handle it
+    debugLog(`Google Places: threw error — ${err.message}`, "err");
+    return null;
   }
+}
+
+function debugLog(msg, cls) {
+  const el = $("gps-debug");
+  if (!el) return;
+  el.classList.add("visible");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  const t = new Date().toLocaleTimeString(undefined, { hour12: false });
+  line.textContent = `[${t}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearDebugLog() {
+  const el = $("gps-debug");
+  if (el) el.innerHTML = "";
 }
 
 function useCurrentLocation() {
   const btn = $("gps-btn");
+  clearDebugLog();
+  debugLog("Tapped GPS button.");
+
   if (!navigator.geolocation) {
+    debugLog("navigator.geolocation is not available in this browser.", "err");
     alert("This browser doesn't support location lookup.");
     return;
   }
 
   btn.disabled = true;
   btn.textContent = "⏳";
+  debugLog("Requesting position from device…");
 
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
-      const { latitude, longitude } = pos.coords;
-      // Try Google Places first (much better business-name coverage), if configured.
+      const { latitude, longitude, accuracy } = pos.coords;
+      debugLog(`Got position: ${latitude.toFixed(5)}, ${longitude.toFixed(5)} — accuracy ±${Math.round(accuracy)}m`, accuracy > 100 ? "err" : "ok");
+
       const googleResult = await tryGooglePlaces(latitude, longitude);
       if (googleResult) {
         $("field-location").value = googleResult;
+        debugLog(`Using Google Places result: "${googleResult}"`, "ok");
         btn.disabled = false;
         btn.textContent = "📍";
         return;
       }
 
-      // Fall back to free OpenStreetMap reverse geocoding.
+      debugLog("Falling back to OpenStreetMap/Nominatim…");
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&namedetails=1`
         );
+        debugLog(`Nominatim: HTTP ${res.status}`);
         const data = await res.json();
         const a = data.address || {};
         const businessName = data.name || (data.namedetails && data.namedetails.name) || null;
@@ -576,14 +619,17 @@ function useCurrentLocation() {
         let label;
         if (businessName) {
           label = place || region ? `${businessName}, ${place || region}` : businessName;
+          debugLog(`Nominatim: found business name "${businessName}"`, "ok");
         } else if (place && region) {
           label = `${place}, ${region}`;
+          debugLog(`Nominatim: no business name, using "${label}"`, "err");
         } else {
           label = place || region || data.display_name;
+          debugLog(`Nominatim: minimal match, using "${label}"`, "err");
         }
         $("field-location").value = label || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
       } catch (err) {
-        // Fall back to raw coordinates if the geocoding lookup fails
+        debugLog(`Nominatim: threw error — ${err.message}`, "err");
         $("field-location").value = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
       } finally {
         btn.disabled = false;
@@ -591,6 +637,7 @@ function useCurrentLocation() {
       }
     },
     (err) => {
+      debugLog(`Geolocation error: code ${err.code} — ${err.message}`, "err");
       btn.disabled = false;
       btn.textContent = "📍";
       if (err.code === err.PERMISSION_DENIED) {
