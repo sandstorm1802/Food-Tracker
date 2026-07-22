@@ -505,6 +505,41 @@ function closeForm() {
   $("add-btn").classList.remove("hidden");
 }
 
+async function tryGooglePlaces(lat, lng) {
+  if (typeof GOOGLE_PLACES_API_KEY === "undefined" || !GOOGLE_PLACES_API_KEY || GOOGLE_PLACES_API_KEY.startsWith("YOUR_")) {
+    return null; // not configured, skip silently
+  }
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress",
+      },
+      body: JSON.stringify({
+        maxResultCount: 1,
+        rankPreference: "DISTANCE",
+        locationRestriction: {
+          circle: { center: { latitude: lat, longitude: lng }, radius: 75.0 },
+        },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const place = data.places && data.places[0];
+    if (!place) return null;
+    const name = place.displayName && place.displayName.text;
+    if (!name) return null;
+    // Pull a short city from the formatted address, if present.
+    const addressParts = (place.formattedAddress || "").split(",").map((s) => s.trim());
+    const cityGuess = addressParts.length >= 3 ? addressParts[addressParts.length - 3] : null;
+    return cityGuess ? `${name}, ${cityGuess}` : name;
+  } catch (err) {
+    return null; // fail silently, Nominatim fallback will handle it
+  }
+}
+
 function useCurrentLocation() {
   const btn = $("gps-btn");
   if (!navigator.geolocation) {
@@ -518,6 +553,16 @@ function useCurrentLocation() {
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       const { latitude, longitude } = pos.coords;
+      // Try Google Places first (much better business-name coverage), if configured.
+      const googleResult = await tryGooglePlaces(latitude, longitude);
+      if (googleResult) {
+        $("field-location").value = googleResult;
+        btn.disabled = false;
+        btn.textContent = "📍";
+        return;
+      }
+
+      // Fall back to free OpenStreetMap reverse geocoding.
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&namedetails=1`
