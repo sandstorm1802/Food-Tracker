@@ -558,21 +558,12 @@ async function tryGooglePlaces(lat, lng) {
   }
 }
 
-function debugLog(msg, cls) {
-  const el = $("gps-debug");
-  if (!el) return;
-  el.classList.add("visible");
-  const line = document.createElement("div");
-  if (cls) line.className = cls;
-  const t = new Date().toLocaleTimeString(undefined, { hour12: false });
-  line.textContent = `[${t}] ${msg}`;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
+function debugLog() {
+  // Debugging complete — logging disabled.
 }
 
 function clearDebugLog() {
-  const el = $("gps-debug");
-  if (el) el.innerHTML = "";
+  // Debugging complete — logging disabled.
 }
 
 function useCurrentLocation() {
