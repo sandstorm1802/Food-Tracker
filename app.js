@@ -33,7 +33,8 @@ function guessMeal() {
 }
 
 function dateKey(d) {
-  return d.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function dateLabel(key) {
