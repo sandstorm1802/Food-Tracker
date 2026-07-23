@@ -329,7 +329,11 @@ function render() {
           ${en.notes ? `<div class="stub-notes">${escapeHtml(en.notes)}</div>` : ""}
         </div>
       `;
-      stub.querySelector(".delete-btn").onclick = () => deleteEntry(en.id);
+      stub.querySelector(".delete-btn").onclick = () => {
+        if (confirm(`Delete "${en.name}"? This can't be undone.`)) {
+          deleteEntry(en.id);
+        }
+      };
       stub.querySelector(".edit-btn").onclick = () => openForm(en);
       group.appendChild(stub);
     });
