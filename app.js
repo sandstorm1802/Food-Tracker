@@ -134,7 +134,16 @@ function attachListeners(uid) {
 
   const targetRef = window.db.collection("users").doc(uid).collection("meta").doc("target");
   unsubTarget = targetRef.onSnapshot((doc) => {
-    dailyTarget = doc.exists ? doc.data().value : null;
+    const raw = doc.exists ? doc.data().value : null;
+    if (raw && typeof raw === "object") {
+      dailyTarget = raw;
+    } else if (typeof raw === "number") {
+      // Legacy format: a bare calorie number. Migrate in memory only;
+      // saveTarget() will persist the new shape next time targets are edited.
+      dailyTarget = { calories: raw, protein: null, fiber: null };
+    } else {
+      dailyTarget = null;
+    }
     render();
   }, (err) => console.error("target listener error:", err));
 }
@@ -154,6 +163,8 @@ async function deleteEntry(id) {
 }
 
 async function saveTarget(value) {
+  // value is now { calories, protein, fiber } (any of which may be null),
+  // or null to clear all targets entirely.
   const ref = window.db.collection("users").doc(currentUser.uid).collection("meta").doc("target");
   if (value === null) {
     await ref.delete();
@@ -198,9 +209,14 @@ function renderMealSelect() {
 function renderTarget() {
   const wrap = $("target-display");
   wrap.innerHTML = "";
-  if (dailyTarget) {
+  const hasAny = dailyTarget && (dailyTarget.calories || dailyTarget.protein || dailyTarget.fiber);
+  if (hasAny) {
+    const parts = [];
+    if (dailyTarget.calories) parts.push(`${dailyTarget.calories.toLocaleString()} cal`);
+    if (dailyTarget.protein) parts.push(`${dailyTarget.protein}g protein`);
+    if (dailyTarget.fiber) parts.push(`${dailyTarget.fiber}g fiber`);
     const span = document.createElement("span");
-    span.textContent = `Daily target: ${dailyTarget.toLocaleString()} cal · `;
+    span.textContent = `Daily target: ${parts.join(" · ")} · `;
     const editBtn = document.createElement("button");
     editBtn.textContent = "edit";
     editBtn.onclick = () => openTargetEditor();
@@ -208,7 +224,7 @@ function renderTarget() {
     wrap.appendChild(editBtn);
   } else {
     const btn = document.createElement("button");
-    btn.textContent = "Set a daily calorie target";
+    btn.textContent = "Set daily targets";
     btn.onclick = () => openTargetEditor();
     wrap.appendChild(btn);
   }
@@ -217,22 +233,49 @@ function renderTarget() {
 function openTargetEditor() {
   const wrap = $("target-display");
   wrap.innerHTML = "";
-  const input = document.createElement("input");
-  input.type = "text";
-  input.inputMode = "numeric";
-  input.placeholder = "e.g. 2000";
-  input.value = dailyTarget || "";
+
+  const calInput = document.createElement("input");
+  calInput.type = "text";
+  calInput.inputMode = "numeric";
+  calInput.placeholder = "Calories, e.g. 2000";
+  calInput.value = (dailyTarget && dailyTarget.calories) || "";
+
+  const proteinInput = document.createElement("input");
+  proteinInput.type = "text";
+  proteinInput.inputMode = "numeric";
+  proteinInput.placeholder = "Protein (g)";
+  proteinInput.value = (dailyTarget && dailyTarget.protein) || 90;
+
+  const fiberInput = document.createElement("input");
+  fiberInput.type = "text";
+  fiberInput.inputMode = "numeric";
+  fiberInput.placeholder = "Fiber (g)";
+  fiberInput.value = (dailyTarget && dailyTarget.fiber) || 30;
+
+  [calInput, proteinInput, fiberInput].forEach((inp) => {
+    inp.addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/[^0-9]/g, "");
+    });
+  });
+
   const save = document.createElement("button");
   save.textContent = "Save";
   save.className = "save-btn";
   save.onclick = async () => {
-    const v = input.value.trim() ? Number(input.value.trim().replace(/[^0-9]/g, "")) : null;
+    const toNum = (inp) => (inp.value.trim() ? Number(inp.value.trim().replace(/[^0-9]/g, "")) : null);
+    const calories = toNum(calInput);
+    const protein = toNum(proteinInput);
+    const fiber = toNum(fiberInput);
+    const v = (calories || protein || fiber) ? { calories, protein, fiber } : null;
     await saveTarget(v);
   };
-  wrap.appendChild(document.createTextNode("Daily target "));
-  wrap.appendChild(input);
+
+  wrap.appendChild(document.createTextNode("Daily targets: "));
+  wrap.appendChild(calInput);
+  wrap.appendChild(proteinInput);
+  wrap.appendChild(fiberInput);
   wrap.appendChild(save);
-  input.focus();
+  calInput.focus();
 }
 
 function filteredEntries() {
@@ -289,18 +332,38 @@ function render() {
     head.appendChild(label);
     head.appendChild(rule);
 
-    const withCals = items.filter((en) => typeof en.calories === "number");
-    if (withCals.length) {
-      const total = withCals.reduce((s, en) => s + en.calories, 0);
+    const sumField = (field) => {
+      const withField = items.filter((en) => typeof en[field] === "number");
+      if (!withField.length) return null;
+      return withField.reduce((s, en) => s + en[field], 0);
+    };
+
+    const totalCals = sumField("calories");
+    const totalProtein = sumField("protein");
+    const totalFiber = sumField("fiber");
+
+    const targetFor = (key) => dailyTarget && dailyTarget[key] ? dailyTarget[key] : null;
+
+    const totalPart = (total, target, unit) => {
+      if (total === null) return null;
+      if (target) {
+        const diff = target - total;
+        const under = diff >= 0;
+        return `${total.toLocaleString()} / ${target.toLocaleString()}${unit} <span class="${under ? "diff-under" : "diff-over"}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
+      }
+      return `${total.toLocaleString()}${unit}`;
+    };
+
+    const parts = [
+      totalPart(totalCals, targetFor("calories"), " cal"),
+      totalPart(totalProtein, targetFor("protein"), "g protein"),
+      totalPart(totalFiber, targetFor("fiber"), "g fiber"),
+    ].filter(Boolean);
+
+    if (parts.length) {
       const totalSpan = document.createElement("span");
       totalSpan.className = "day-total";
-      if (dailyTarget) {
-        const diff = dailyTarget - total;
-        const under = diff >= 0;
-        totalSpan.innerHTML = `${total.toLocaleString()} / ${dailyTarget.toLocaleString()} cal <span class="${under ? "diff-under" : "diff-over"}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
-      } else {
-        totalSpan.textContent = `${total.toLocaleString()} cal`;
-      }
+      totalSpan.innerHTML = parts.join(" · ");
       head.appendChild(totalSpan);
     }
 
@@ -324,6 +387,8 @@ function render() {
             <span>${timeLabel(en.timestamp)}</span>
             ${en.location ? `<span>📍 ${escapeHtml(en.location)}</span>` : ""}
             ${typeof en.calories === "number" ? `<span>${en.calories} cal</span>` : ""}
+            ${typeof en.protein === "number" ? `<span>${en.protein}g protein</span>` : ""}
+            ${typeof en.fiber === "number" ? `<span>${en.fiber}g fiber</span>` : ""}
             ${en.portion ? `<span>${escapeHtml(en.portion)}</span>` : ""}
           </div>
           ${en.notes ? `<div class="stub-notes">${escapeHtml(en.notes)}</div>` : ""}
@@ -362,7 +427,7 @@ function exportCsv() {
     return;
   }
   const sorted = [...entries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  const headers = ["Date", "Time", "Meal", "Food", "Portion", "Calories", "Location", "Notes"];
+  const headers = ["Date", "Time", "Meal", "Food", "Portion", "Calories", "Protein (g)", "Fiber (g)", "Location", "Notes"];
   const rows = sorted.map((en) => {
     const d = new Date(en.timestamp);
     return [
@@ -372,6 +437,8 @@ function exportCsv() {
       en.name || "",
       en.portion || "",
       typeof en.calories === "number" ? en.calories : "",
+      typeof en.protein === "number" ? en.protein : "",
+      typeof en.fiber === "number" ? en.fiber : "",
       en.location || "",
       en.notes || "",
     ].map(csvEscape).join(",");
@@ -413,6 +480,8 @@ function openForm(entryToEdit) {
     $("field-time").value = toLocalTimeValue(d);
     $("field-location").value = entryToEdit.location || "";
     $("field-calories").value = typeof entryToEdit.calories === "number" ? entryToEdit.calories : "";
+    $("field-protein").value = typeof entryToEdit.protein === "number" ? entryToEdit.protein : "";
+    $("field-fiber").value = typeof entryToEdit.fiber === "number" ? entryToEdit.fiber : "";
     $("field-portion").value = entryToEdit.portion || "";
     $("field-notes").value = entryToEdit.notes || "";
   } else {
@@ -448,6 +517,8 @@ function initForm() {
     submitBtn.textContent = wasEditing ? "Saving…" : "Stamping…";
 
     const caloriesRaw = $("field-calories").value.trim();
+    const proteinRaw = $("field-protein").value.trim();
+    const fiberRaw = $("field-fiber").value.trim();
     const dateRaw = $("field-date").value;
     const timeRaw = $("field-time").value.trim();
 
@@ -476,6 +547,8 @@ function initForm() {
       notes: $("field-notes").value.trim(),
       portion: $("field-portion").value.trim(),
       calories: caloriesRaw ? Number(caloriesRaw.replace(/[^0-9]/g, "")) : null,
+      protein: proteinRaw ? Number(proteinRaw.replace(/[^0-9]/g, "")) : null,
+      fiber: fiberRaw ? Number(fiberRaw.replace(/[^0-9]/g, "")) : null,
       timestamp,
     };
 
@@ -496,6 +569,14 @@ function initForm() {
   });
 
   $("field-calories").addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, "");
+  });
+
+  $("field-protein").addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, "");
+  });
+
+  $("field-fiber").addEventListener("input", (e) => {
     e.target.value = e.target.value.replace(/[^0-9]/g, "");
   });
 
