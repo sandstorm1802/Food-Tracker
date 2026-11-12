@@ -206,21 +206,17 @@ function renderMealSelect() {
   });
 }
 
+let targetEditorOpen = false;
+
 function renderTarget() {
+  if (targetEditorOpen) return; // don't wipe inputs mid-edit when a snapshot arrives
   const wrap = $("target-display");
   wrap.innerHTML = "";
   const hasAny = dailyTarget && (dailyTarget.calories || dailyTarget.protein || dailyTarget.fiber);
   if (hasAny) {
-    const parts = [];
-    if (dailyTarget.calories) parts.push(`${dailyTarget.calories.toLocaleString()} cal`);
-    if (dailyTarget.protein) parts.push(`${dailyTarget.protein}g protein`);
-    if (dailyTarget.fiber) parts.push(`${dailyTarget.fiber}g fiber`);
-    const span = document.createElement("span");
-    span.textContent = `Daily target: ${parts.join(" · ")} · `;
     const editBtn = document.createElement("button");
-    editBtn.textContent = "edit";
+    editBtn.textContent = "edit targets";
     editBtn.onclick = () => openTargetEditor();
-    wrap.appendChild(span);
     wrap.appendChild(editBtn);
   } else {
     const btn = document.createElement("button");
@@ -231,6 +227,7 @@ function renderTarget() {
 }
 
 function openTargetEditor() {
+  targetEditorOpen = true;
   const wrap = $("target-display");
   wrap.innerHTML = "";
 
@@ -267,15 +264,163 @@ function openTargetEditor() {
     const protein = toNum(proteinInput);
     const fiber = toNum(fiberInput);
     const v = (calories || protein || fiber) ? { calories, protein, fiber } : null;
+    targetEditorOpen = false;
     await saveTarget(v);
+    render();
   };
 
-  wrap.appendChild(document.createTextNode("Daily targets: "));
-  wrap.appendChild(calInput);
-  wrap.appendChild(proteinInput);
-  wrap.appendChild(fiberInput);
-  wrap.appendChild(save);
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "cancel";
+  cancel.onclick = () => { targetEditorOpen = false; render(); };
+
+  const label = (text, inp) => {
+    const l = document.createElement("label");
+    l.className = "target-field";
+    const s = document.createElement("span");
+    s.textContent = text;
+    l.appendChild(s);
+    l.appendChild(inp);
+    return l;
+  };
+
+  const fields = document.createElement("div");
+  fields.className = "target-fields";
+  fields.appendChild(label("Calories", calInput));
+  fields.appendChild(label("Protein g", proteinInput));
+  fields.appendChild(label("Fiber g", fiberInput));
+  wrap.appendChild(fields);
+  const actions = document.createElement("div");
+  actions.className = "target-actions";
+  actions.appendChild(save);
+  actions.appendChild(cancel);
+  wrap.appendChild(actions);
   calInput.focus();
+}
+
+// ---------- Today summary ----------
+
+function sumField(items, field) {
+  const withField = items.filter((en) => typeof en[field] === "number");
+  if (!withField.length) return null;
+  return withField.reduce((s, en) => s + en[field], 0);
+}
+
+function todaysEntries() {
+  const today = dateKey(new Date());
+  return entries.filter((en) => dateKey(new Date(en.timestamp)) === today);
+}
+
+function renderToday() {
+  const items = todaysEntries();
+  $("today-count").textContent = items.length
+    ? `${items.length} logged`
+    : "nothing logged yet";
+
+  const wrap = $("today-bars");
+  wrap.innerHTML = "";
+  const rows = [
+    { key: "calories", label: "Calories", unit: "", lowerIsBetter: true },
+    { key: "protein", label: "Protein", unit: "g", lowerIsBetter: false },
+    { key: "fiber", label: "Fiber", unit: "g", lowerIsBetter: false },
+  ];
+  rows.forEach((r) => {
+    const total = sumField(items, r.key) || 0;
+    const target = dailyTarget && dailyTarget[r.key] ? dailyTarget[r.key] : null;
+    const row = document.createElement("div");
+    row.className = "bar-row font-mono";
+    let pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0;
+    let state = "";
+    if (target) {
+      if (r.lowerIsBetter && total > target) state = "over";
+      else if (!r.lowerIsBetter && total >= target) state = "hit";
+    }
+    let detail;
+    if (target) {
+      const left = target - total;
+      if (r.lowerIsBetter) {
+        detail = left >= 0 ? `${left.toLocaleString()} left` : `${Math.abs(left).toLocaleString()} over`;
+      } else {
+        detail = left > 0 ? `${left.toLocaleString()}${r.unit} to go` : "goal hit ✓";
+      }
+    } else {
+      detail = "";
+    }
+    row.innerHTML = `
+      <div class="bar-top">
+        <span class="bar-label">${r.label}</span>
+        <span class="bar-num">${total.toLocaleString()}${r.unit}${target ? ` / ${target.toLocaleString()}${r.unit}` : ""}</span>
+      </div>
+      ${target ? `<div class="bar"><div class="bar-fill ${state}" style="width:${pct}%"></div></div>` : ""}
+      ${detail ? `<div class="bar-detail ${state}">${detail}</div>` : ""}
+    `;
+    wrap.appendChild(row);
+  });
+}
+
+// ---------- Food history (for quick-add + autocomplete) ----------
+
+// One record per distinct food name: the most recent entry plus how often it's been logged.
+function foodIndex() {
+  const map = new Map();
+  const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000; // frequency over the last 60 days
+  // entries arrive newest-first from Firestore
+  entries.forEach((en) => {
+    const name = (en.name || "").trim();
+    if (!name) return;
+    const k = name.toLowerCase();
+    const t = new Date(en.timestamp).getTime();
+    if (!map.has(k)) map.set(k, { latest: en, count: 0, recentCount: 0, lastTime: t });
+    const rec = map.get(k);
+    rec.count += 1;
+    if (t >= cutoff) rec.recentCount += 1;
+  });
+  return Array.from(map.values());
+}
+
+function quickPicks(limit = 10) {
+  const now = Date.now();
+  return foodIndex()
+    .map((r) => {
+      const daysAgo = (now - r.lastTime) / 86400000;
+      // frequent + recent float to the top
+      const score = r.recentCount * 2 + Math.max(0, 14 - daysAgo) / 2;
+      return { ...r, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function nutritionSummary(en) {
+  const bits = [];
+  if (typeof en.calories === "number") bits.push(`${en.calories} cal`);
+  if (typeof en.protein === "number") bits.push(`${en.protein}g P`);
+  if (typeof en.fiber === "number") bits.push(`${en.fiber}g F`);
+  if (en.portion) bits.push(en.portion);
+  return bits.join(" · ");
+}
+
+function renderQuick() {
+  const picks = quickPicks();
+  const wrap = $("quick-wrap");
+  const list = $("quick-list");
+  list.innerHTML = "";
+  if (!picks.length) {
+    wrap.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  picks.forEach((p) => {
+    const en = p.latest;
+    const btn = document.createElement("button");
+    btn.className = "quick-chip";
+    btn.innerHTML = `
+      <span class="quick-name">${mealMeta(en.meal).icon} ${escapeHtml(en.name)}</span>
+      <span class="quick-sub font-mono">${escapeHtml(nutritionSummary(en)) || "&nbsp;"}</span>
+    `;
+    btn.onclick = () => openForm(null, en);
+    list.appendChild(btn);
+  });
 }
 
 function filteredEntries() {
@@ -305,13 +450,15 @@ function render() {
   $("entry-count").textContent = `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`;
   renderMealFilters();
   renderTarget();
+  renderToday();
+  renderQuick();
 
   const list = $("entry-list");
   list.innerHTML = "";
   const filtered = filteredEntries();
 
   if (entries.length === 0) {
-    list.innerHTML = `<div class="empty-state"><p class="font-display">No stamps in the log yet.</p><p class="font-mono">Tap + to log your first meal.</p></div>`;
+    list.innerHTML = `<div class="empty-state"><p class="font-display">No stamps in the log yet.</p><p class="font-mono">Tap “Log something” to add your first meal.</p></div>`;
     return;
   }
   if (filtered.length === 0) {
@@ -332,32 +479,27 @@ function render() {
     head.appendChild(label);
     head.appendChild(rule);
 
-    const sumField = (field) => {
-      const withField = items.filter((en) => typeof en[field] === "number");
-      if (!withField.length) return null;
-      return withField.reduce((s, en) => s + en[field], 0);
-    };
-
-    const totalCals = sumField("calories");
-    const totalProtein = sumField("protein");
-    const totalFiber = sumField("fiber");
+    const totalCals = sumField(items, "calories");
+    const totalProtein = sumField(items, "protein");
+    const totalFiber = sumField(items, "fiber");
 
     const targetFor = (key) => dailyTarget && dailyTarget[key] ? dailyTarget[key] : null;
 
-    const totalPart = (total, target, unit) => {
+    const totalPart = (total, target, unit, moreIsBetter = false) => {
       if (total === null) return null;
       if (target) {
         const diff = target - total;
         const under = diff >= 0;
-        return `${total.toLocaleString()} / ${target.toLocaleString()}${unit} <span class="${under ? "diff-under" : "diff-over"}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
+        const good = moreIsBetter ? !under || diff === 0 : under;
+        return `${total.toLocaleString()} / ${target.toLocaleString()}${unit} <span class="${good ? "diff-under" : "diff-over"}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
       }
       return `${total.toLocaleString()}${unit}`;
     };
 
     const parts = [
       totalPart(totalCals, targetFor("calories"), " cal"),
-      totalPart(totalProtein, targetFor("protein"), "g protein"),
-      totalPart(totalFiber, targetFor("fiber"), "g fiber"),
+      totalPart(totalProtein, targetFor("protein"), "g protein", true),
+      totalPart(totalFiber, targetFor("fiber"), "g fiber", true),
     ].filter(Boolean);
 
     if (parts.length) {
@@ -379,6 +521,7 @@ function render() {
           <div class="stub-top">
             <div><span class="stub-meal-icon">${meta.icon}</span><span class="stub-name font-display">${escapeHtml(en.name)}</span></div>
             <div class="stub-actions">
+              <button class="again-btn" title="Log again">↻</button>
               <button class="edit-btn" title="Edit">✎</button>
               <button class="delete-btn" title="Delete">🗑</button>
             </div>
@@ -400,6 +543,7 @@ function render() {
         }
       };
       stub.querySelector(".edit-btn").onclick = () => openForm(en);
+      stub.querySelector(".again-btn").onclick = () => openForm(null, en);
       group.appendChild(stub);
     });
 
@@ -465,45 +609,171 @@ function initExport() {
 
 let editingId = null;
 
-function openForm(entryToEdit) {
+// Copy food details (not time/date) from a past entry into the form.
+function fillFoodFields(src, { includeContext = false } = {}) {
+  const num = (v) => (typeof v === "number" ? v : "");
+  $("field-name").value = src.name || "";
+  $("field-calories").value = num(src.calories);
+  $("field-protein").value = num(src.protein);
+  $("field-fiber").value = num(src.fiber);
+  $("field-portion").value = src.portion || "";
+  if (includeContext) {
+    $("field-location").value = src.location || "";
+    $("field-notes").value = src.notes || "";
+  }
+}
+
+function updateWhenLabel() {
+  const dateRaw = $("field-date").value;
+  const timeRaw = $("field-time").value;
+  const now = new Date();
+  const isToday = dateRaw === toLocalDateValue(now);
+  const nowTime = toLocalTimeValue(now);
+  let label;
+  if (isToday && timeRaw === nowTime) label = "Now";
+  else if (dateRaw) label = `${dateLabel(dateRaw)} · ${timeRaw || "--:--"}`;
+  else label = timeRaw || "Now";
+  $("when-label").textContent = label;
+}
+
+let whenTouched = false;
+
+function setWhenOpen(open) {
+  $("when-fields").classList.toggle("hidden", !open);
+}
+
+// openForm(entryToEdit)        → edit an existing entry
+// openForm(null, template)     → new entry pre-filled from a past one ("log again")
+// openForm(null)               → blank new entry
+function openForm(entryToEdit, template) {
   editingId = entryToEdit ? entryToEdit.id : null;
   const submitBtn = $("add-form").querySelector("button[type=submit]");
   const eyebrow = $("add-form").querySelector(".eyebrow");
+  $("add-form").reset();
+  hideSuggestions();
 
   if (entryToEdit) {
     eyebrow.textContent = "Edit entry";
     submitBtn.textContent = "Save changes";
     selectedMeal = entryToEdit.meal;
-    $("field-name").value = entryToEdit.name || "";
+    fillFoodFields(entryToEdit, { includeContext: true });
     const d = new Date(entryToEdit.timestamp);
     $("field-date").value = toLocalDateValue(d);
     $("field-time").value = toLocalTimeValue(d);
-    $("field-location").value = entryToEdit.location || "";
-    $("field-calories").value = typeof entryToEdit.calories === "number" ? entryToEdit.calories : "";
-    $("field-protein").value = typeof entryToEdit.protein === "number" ? entryToEdit.protein : "";
-    $("field-fiber").value = typeof entryToEdit.fiber === "number" ? entryToEdit.fiber : "";
-    $("field-portion").value = entryToEdit.portion || "";
-    $("field-notes").value = entryToEdit.notes || "";
   } else {
-    eyebrow.textContent = "New entry";
+    eyebrow.textContent = template ? "Log again" : "New entry";
     submitBtn.textContent = "Log it";
     selectedMeal = guessMeal();
-    $("add-form").reset();
     const now = new Date();
     $("field-date").value = toLocalDateValue(now);
     $("field-time").value = toLocalTimeValue(now);
+    if (template) {
+      fillFoodFields(template);
+      // Drinks stay drinks and snacks stay snacks; meals follow the clock.
+      if (template.meal === "drink" || template.meal === "snack") selectedMeal = template.meal;
+    }
   }
 
+  whenTouched = !!entryToEdit;
+  const hasContext = $("field-location").value || $("field-notes").value;
+  $("more-details").open = !!hasContext;
+  setWhenOpen(false);
+  updateWhenLabel();
   renderMealSelect();
   $("add-form-wrap").classList.remove("hidden");
+  document.body.classList.add("sheet-open");
   $("add-btn").classList.add("hidden");
-  $("field-name").focus();
+  // Don't pop the keyboard when the form is already filled — one tap on "Log it" is all that's needed.
+  if (!entryToEdit && !template) $("field-name").focus();
+}
+
+// ---------- Autocomplete ----------
+
+let suggestionItems = [];
+
+function hideSuggestions() {
+  $("suggest-list").classList.add("hidden");
+  $("suggest-list").innerHTML = "";
+  suggestionItems = [];
+}
+
+function showSuggestions() {
+  const q = $("field-name").value.trim().toLowerCase();
+  if (!q || editingId) return hideSuggestions();
+  const index = foodIndex();
+  const matches = index
+    .filter((r) => r.latest.name.toLowerCase().includes(q) && r.latest.name.toLowerCase() !== q)
+    .sort((a, b) => {
+      const aStarts = a.latest.name.toLowerCase().startsWith(q) ? 1 : 0;
+      const bStarts = b.latest.name.toLowerCase().startsWith(q) ? 1 : 0;
+      return bStarts - aStarts || b.count - a.count;
+    })
+    .slice(0, 5);
+  const wrap = $("suggest-list");
+  wrap.innerHTML = "";
+  suggestionItems = matches;
+  if (!matches.length) return hideSuggestions();
+  matches.forEach((m) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "suggest-item";
+    btn.innerHTML = `<span class="suggest-name">${escapeHtml(m.latest.name)}</span><span class="suggest-sub font-mono">${escapeHtml(nutritionSummary(m.latest))}</span>`;
+    // mousedown fires before the input's blur, so the tap registers
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.onclick = () => {
+      fillFoodFields(m.latest);
+      if (m.latest.meal === "drink" || m.latest.meal === "snack") {
+        selectedMeal = m.latest.meal;
+        renderMealSelect();
+      }
+      hideSuggestions();
+      $("field-name").blur();
+    };
+    wrap.appendChild(btn);
+  });
+  wrap.classList.remove("hidden");
+}
+
+// ---------- Toast ----------
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
 function initForm() {
   $("add-btn").addEventListener("click", () => openForm(null));
+  $("add-btn-main").addEventListener("click", () => openForm(null));
 
   $("close-form").addEventListener("click", closeForm);
+  $("sheet-backdrop").addEventListener("click", closeForm);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("add-form-wrap").classList.contains("hidden")) closeForm();
+  });
+
+  $("when-toggle").addEventListener("click", () => {
+    const open = $("when-fields").classList.contains("hidden");
+    setWhenOpen(open);
+    if (open) $("field-time").focus();
+  });
+  $("field-date").addEventListener("change", () => { whenTouched = true; updateWhenLabel(); });
+  $("field-time").addEventListener("input", () => { whenTouched = true; updateWhenLabel(); });
+
+  $("field-name").addEventListener("input", showSuggestions);
+  $("field-name").addEventListener("focus", showSuggestions);
+  $("field-name").addEventListener("blur", () => setTimeout(hideSuggestions, 150));
+
+  // Show the floating + only once the big "Log something" button has scrolled out of view.
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver(([e]) => {
+      document.body.classList.toggle("main-add-visible", e.isIntersecting);
+    });
+    io.observe($("add-btn-main"));
+  }
 
   $("gps-btn").addEventListener("click", useCurrentLocation);
 
@@ -515,6 +785,13 @@ function initForm() {
     const wasEditing = !!editingId;
     submitBtn.disabled = true;
     submitBtn.textContent = wasEditing ? "Saving…" : "Stamping…";
+
+    // If the time was never changed, stamp it at the moment of saving, not when the form opened.
+    if (!wasEditing && !whenTouched) {
+      const now = new Date();
+      $("field-date").value = toLocalDateValue(now);
+      $("field-time").value = toLocalTimeValue(now);
+    }
 
     const caloriesRaw = $("field-calories").value.trim();
     const proteinRaw = $("field-protein").value.trim();
@@ -560,6 +837,7 @@ function initForm() {
       }
       $("add-form").reset();
       closeForm();
+      toast(wasEditing ? "Saved" : `Logged: ${name}`);
     } catch (err) {
       alert("Couldn't save entry: " + err.message);
     } finally {
@@ -586,12 +864,15 @@ function initForm() {
       digits = digits.slice(0, 2) + ":" + digits.slice(2);
     }
     e.target.value = digits;
+    updateWhenLabel();
   });
 }
 
 function closeForm() {
   editingId = null;
+  hideSuggestions();
   $("add-form-wrap").classList.add("hidden");
+  document.body.classList.remove("sheet-open");
   $("add-btn").classList.remove("hidden");
 }
 
@@ -731,6 +1012,23 @@ function initSearch() {
   $("search-input").addEventListener("input", (e) => {
     query = e.target.value;
     render();
+  });
+  $("search-toggle").addEventListener("click", () => {
+    const wrap = $("search-wrap");
+    const opening = wrap.classList.contains("hidden");
+    wrap.classList.toggle("hidden", !opening);
+    if (opening) {
+      $("search-input").focus();
+    } else {
+      // closing search clears it so the log isn't silently filtered
+      query = "";
+      mealFilter = null;
+      $("search-input").value = "";
+      render();
+    }
+  });
+  $("menu-toggle").addEventListener("click", () => {
+    $("menu").classList.toggle("hidden");
   });
 }
 

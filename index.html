@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=1" />
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png?v=1" />
 
-<link rel="stylesheet" href="styles.css?v=8" />
+<link rel="stylesheet" href="styles.css?v=9" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -47,49 +47,107 @@
       <div class="header-row">
         <h1 class="font-display">Field Log</h1>
         <div class="header-right">
-          <span id="entry-count" class="pill font-mono">0 entries</span>
-          <button id="export-btn" class="link-btn font-mono">Export CSV</button>
-          <button id="logout-btn" class="link-btn font-mono">Sign out</button>
+          <button id="search-toggle" class="icon-btn" title="Search">🔍</button>
+          <button id="menu-toggle" class="icon-btn" title="Menu">⋯</button>
         </div>
       </div>
-
-      <div class="search-row">
-        <input id="search-input" class="font-mono" type="text" placeholder="Search meals, places, notes…" />
+      <div id="menu" class="menu hidden">
+        <span id="entry-count" class="font-mono muted">0 entries</span>
+        <button id="export-btn" class="link-btn font-mono">Export CSV</button>
+        <button id="logout-btn" class="link-btn font-mono">Sign out</button>
       </div>
-
-      <div id="meal-filters" class="chip-row"></div>
-
-      <div id="target-display" class="target-row font-mono"></div>
+      <div id="search-wrap" class="search-wrap hidden">
+        <div class="search-row">
+          <input id="search-input" class="font-mono" type="search" placeholder="Search meals, places, notes…" />
+        </div>
+        <div id="meal-filters" class="chip-row"></div>
+      </div>
     </header>
 
-    <main id="entry-list" class="entry-list"></main>
+    <main class="main">
+      <!-- Today at a glance -->
+      <section id="today-card" class="today-card">
+        <div class="today-head">
+          <span class="font-mono eyebrow">Today</span>
+          <span id="today-count" class="font-mono eyebrow"></span>
+        </div>
+        <div id="today-bars" class="today-bars"></div>
+        <div id="target-display" class="target-row font-mono"></div>
+      </section>
 
-    <div id="add-form-wrap" class="add-form-wrap hidden">
-      <form id="add-form" class="add-form">
+      <!-- Big obvious add button + quick re-log -->
+      <button id="add-btn-main" class="add-main">
+        <span class="add-main-plus">+</span>
+        <span>Log something</span>
+      </button>
+
+      <section id="quick-wrap" class="quick-wrap hidden">
+        <div class="font-mono eyebrow">Tap to log again</div>
+        <div id="quick-list" class="quick-list"></div>
+      </section>
+
+      <div id="entry-list" class="entry-list"></div>
+    </main>
+
+    <!-- Bottom-sheet add/edit form -->
+    <div id="add-form-wrap" class="sheet-wrap hidden">
+      <div id="sheet-backdrop" class="sheet-backdrop"></div>
+      <form id="add-form" class="sheet" autocomplete="off">
         <div class="form-head">
           <span class="font-mono eyebrow">New entry</span>
           <button type="button" id="close-form" class="icon-btn">✕</button>
         </div>
-        <input id="field-name" class="font-display field-name" type="text" placeholder="What did you eat?" required />
-        <div id="meal-select" class="chip-row"></div>
-        <div class="datetime-row">
-          <input id="field-date" class="font-mono" type="date" />
-          <input id="field-time" class="font-mono" type="text" inputmode="numeric" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5" />
+
+        <div class="sheet-scroll">
+          <div class="name-wrap">
+            <input id="field-name" class="font-display field-name" type="text" placeholder="What did you eat?" required />
+            <div id="suggest-list" class="suggest-list hidden"></div>
+          </div>
+
+          <div id="meal-select" class="chip-row chip-row-wrap"></div>
+
+          <div class="num-row">
+            <label class="num-field">
+              <span class="font-mono num-label">Calories</span>
+              <input id="field-calories" class="font-mono" type="text" inputmode="numeric" placeholder="—" />
+            </label>
+            <label class="num-field">
+              <span class="font-mono num-label">Protein g</span>
+              <input id="field-protein" class="font-mono" type="text" inputmode="numeric" placeholder="—" />
+            </label>
+            <label class="num-field">
+              <span class="font-mono num-label">Fiber g</span>
+              <input id="field-fiber" class="font-mono" type="text" inputmode="numeric" placeholder="—" />
+            </label>
+          </div>
+
+          <input id="field-portion" class="font-mono" type="text" placeholder="Portion (e.g. 1/2 bagel, 3 oz, 2 tbsp)" />
+
+          <button type="button" id="when-toggle" class="when-toggle font-mono">
+            <span id="when-label">Now</span><span class="muted"> · change</span>
+          </button>
+          <div id="when-fields" class="datetime-row hidden">
+            <input id="field-date" class="font-mono" type="date" />
+            <input id="field-time" class="font-mono" type="text" inputmode="numeric" placeholder="HH:MM" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5" />
+          </div>
+
+          <details id="more-details" class="more-details">
+            <summary class="font-mono">Location &amp; notes</summary>
+            <div class="location-row">
+              <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
+              <button type="button" id="gps-btn" class="icon-btn" title="Use current location">📍</button>
+            </div>
+            <textarea id="field-notes" class="font-mono" rows="2" placeholder="Notes — brand, type, how it was made…"></textarea>
+          </details>
         </div>
-        <div class="location-row">
-          <input id="field-location" class="font-mono" type="text" placeholder="Where? (optional)" />
-          <button type="button" id="gps-btn" class="icon-btn" title="Use current location">📍</button>
+
+        <div class="sheet-foot">
+          <button type="submit" class="btn-primary">Log it</button>
         </div>
-        <input id="field-calories" class="font-mono" type="text" inputmode="numeric" placeholder="Calories, from the label (optional)" />
-        <div class="macro-row">
-          <input id="field-protein" class="font-mono" type="text" inputmode="numeric" placeholder="Protein (g, optional)" />
-          <input id="field-fiber" class="font-mono" type="text" inputmode="numeric" placeholder="Fiber (g, optional)" />
-        </div>
-        <input id="field-portion" class="font-mono" type="text" placeholder="Portion size (e.g. 1/2 bagel, 3 oz, 2 tbsp)" />
-        <textarea id="field-notes" class="font-mono" rows="2" placeholder="Notes — brand, type (e.g. whole grain, sesame), how it was made…"></textarea>
-        <button type="submit" class="btn-primary">Log it</button>
       </form>
     </div>
+
+    <div id="toast" class="toast font-mono hidden"></div>
 
     <button id="add-btn" class="fab">+</button>
   </div>
@@ -101,7 +159,7 @@
 
   <script src="firebase-config.js?v=2"></script>
   <script src="google-places-config.js?v=1"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
