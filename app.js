@@ -17,6 +17,10 @@ let mealFilter = null;
 let selectedMeal = "breakfast";
 let unsubEntries = null;
 let unsubTarget = null;
+let unsubWeights = null;
+let unsubWeightGoal = null;
+let weights = []; // [{ id, date: "YYYY-MM-DD", lbs }]
+let weightGoal = { low: 225, high: 230 }; // default from the MOVE goal; editable
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,7 +95,10 @@ async function initAuth() {
       $("login-screen").classList.remove("hidden");
       if (unsubEntries) unsubEntries();
       if (unsubTarget) unsubTarget();
+      if (unsubWeights) unsubWeights();
+      if (unsubWeightGoal) unsubWeightGoal();
       entries = [];
+      weights = [];
     }
   });
 
@@ -146,6 +153,31 @@ function attachListeners(uid) {
     }
     render();
   }, (err) => console.error("target listener error:", err));
+
+  const userDoc = window.db.collection("users").doc(uid);
+  unsubWeights = userDoc.collection("weights").orderBy("date", "asc").onSnapshot((snap) => {
+    weights = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderWeight();
+  }, (err) => console.error("weights listener error:", err));
+
+  unsubWeightGoal = userDoc.collection("meta").doc("weightGoal").onSnapshot((doc) => {
+    if (doc.exists && doc.data().low) weightGoal = { low: doc.data().low, high: doc.data().high || doc.data().low };
+    renderWeight();
+  }, (err) => console.error("weight goal listener error:", err));
+}
+
+async function saveWeight(date, lbs) {
+  // One weigh-in per day: the date is the doc id, so re-entering a day overwrites it.
+  await window.db.collection("users").doc(currentUser.uid).collection("weights").doc(date)
+    .set({ date, lbs, timestamp: new Date().toISOString() });
+}
+
+async function deleteWeight(id) {
+  await window.db.collection("users").doc(currentUser.uid).collection("weights").doc(id).delete();
+}
+
+async function saveWeightGoal(low, high) {
+  await window.db.collection("users").doc(currentUser.uid).collection("meta").doc("weightGoal").set({ low, high });
 }
 
 async function addEntry(entry) {
@@ -313,9 +345,17 @@ function todaysEntries() {
 
 function renderToday() {
   const items = todaysEntries();
-  $("today-count").textContent = items.length
-    ? `${items.length} logged`
-    : "nothing logged yet";
+  const s = streakInfo();
+  let streakText = "";
+  if (s.current > 0) {
+    streakText = s.loggedToday
+      ? `🔥 ${s.current}-day streak`
+      : `🔥 ${s.current} days · log today to keep it`;
+    if (s.best > s.current) streakText += ` · best ${s.best}`;
+  } else if (s.best > 0) {
+    streakText = `best streak ${s.best} days`;
+  }
+  $("today-count").textContent = streakText || (items.length ? `${items.length} logged` : "nothing logged yet");
 
   const wrap = $("today-bars");
   wrap.innerHTML = "";
@@ -355,6 +395,264 @@ function renderToday() {
       ${detail ? `<div class="bar-detail ${state}">${detail}</div>` : ""}
     `;
     wrap.appendChild(row);
+  });
+}
+
+// ---------- Streak ----------
+
+function shiftKey(key, days) {
+  const [y, m, d] = key.split("-").map(Number);
+  return dateKey(new Date(y, m - 1, d + days));
+}
+
+// Current streak = consecutive days with at least one entry, ending today
+// (or yesterday, if today hasn't been logged yet — it's still alive until midnight).
+function streakInfo() {
+  const days = new Set(entries.map((en) => dateKey(new Date(en.timestamp))));
+  const today = dateKey(new Date());
+  const loggedToday = days.has(today);
+  let cursor = loggedToday ? today : shiftKey(today, -1);
+  let current = 0;
+  while (days.has(cursor)) { current++; cursor = shiftKey(cursor, -1); }
+
+  let best = 0;
+  days.forEach((k) => {
+    if (days.has(shiftKey(k, -1))) return; // only start counting at the beginning of a run
+    let len = 0, c = k;
+    while (days.has(c)) { len++; c = shiftKey(c, 1); }
+    best = Math.max(best, len);
+  });
+  return { current, best, loggedToday };
+}
+
+// ---------- Weight ----------
+
+function daysBetween(a, b) {
+  const pa = a.split("-").map(Number), pb = b.split("-").map(Number);
+  return Math.round((new Date(pb[0], pb[1] - 1, pb[2]) - new Date(pa[0], pa[1] - 1, pa[2])) / 86400000);
+}
+
+// Smoothed trend so one salty dinner or water-weight swing doesn't look like a setback.
+// Exponential moving average, weighted by the gap between weigh-ins (~10% per day).
+function weightTrend(list) {
+  let t = null, prev = null;
+  return list.map((w) => {
+    if (t === null) t = w.lbs;
+    else {
+      const gap = Math.max(1, daysBetween(prev, w.date));
+      const alpha = 1 - Math.pow(0.9, gap);
+      t = t + alpha * (w.lbs - t);
+    }
+    prev = w.date;
+    return { ...w, trend: Math.round(t * 10) / 10 };
+  });
+}
+
+function fmtLbs(n) {
+  return (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "");
+}
+
+function shortDate(key) {
+  return new Date(key + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function renderWeight() {
+  if (!$("weight-card")) return;
+  const summary = $("weight-summary");
+  const chart = $("weight-chart");
+  const data = weightTrend(weights);
+
+  // Goal line
+  const goalWrap = $("weight-goal");
+  if (!weightGoalEditorOpen) {
+    goalWrap.innerHTML = "";
+    const span = document.createElement("span");
+    span.textContent = `Goal ${weightGoal.low}${weightGoal.high !== weightGoal.low ? "–" + weightGoal.high : ""} lb · `;
+    const btn = document.createElement("button");
+    btn.textContent = "edit";
+    btn.onclick = openWeightGoalEditor;
+    goalWrap.appendChild(span);
+    goalWrap.appendChild(btn);
+  }
+
+  // History list
+  const hist = $("weight-history-list");
+  hist.innerHTML = "";
+  [...weights].reverse().slice(0, 30).forEach((w) => {
+    const row = document.createElement("div");
+    row.className = "hist-row font-mono";
+    row.innerHTML = `<span>${shortDate(w.date)}</span><span>${fmtLbs(w.lbs)} lb</span><button class="delete-btn" title="Delete">🗑</button>`;
+    row.querySelector("button").onclick = () => {
+      if (confirm(`Delete weigh-in from ${shortDate(w.date)}?`)) deleteWeight(w.id);
+    };
+    hist.appendChild(row);
+  });
+  $("weight-history").classList.toggle("hidden", weights.length === 0);
+
+  if (!data.length) {
+    summary.innerHTML = `<div class="weight-empty font-mono">Log a weigh-in to start your trend line. Once or twice a week, same time of day, works best.</div>`;
+    chart.innerHTML = "";
+    return;
+  }
+
+  const first = data[0];
+  const last = data[data.length - 1];
+  const change = last.trend - first.lbs;
+  const toGoal = last.trend - weightGoal.high;
+  const changeTxt = data.length > 1
+    ? `${change <= 0 ? "−" : "+"}${fmtLbs(Math.abs(change))} since ${shortDate(first.date)}`
+    : `first weigh-in ${shortDate(first.date)}`;
+  const goalTxt = toGoal > 0 ? `${fmtLbs(toGoal)} to goal` : "in goal range ✓";
+  summary.innerHTML = `
+    <div class="weight-big font-display">${fmtLbs(last.trend)}<span class="weight-unit"> lb</span></div>
+    <div class="weight-sub font-mono">
+      <span class="${data.length > 1 && change <= 0 ? "good" : ""}">${changeTxt}</span> · <span>${goalTxt}</span>
+    </div>
+    <div class="weight-note font-mono">Trend weight · last weigh-in ${fmtLbs(last.lbs)} lb on ${shortDate(last.date)}</div>
+  `;
+
+  chart.innerHTML = data.length > 1 ? weightChartSvg(data) : "";
+  if (data.length > 1) wireWeightChart(data);
+}
+
+// Single-series line chart: raw weigh-ins as small muted dots, smoothed trend as the line,
+// goal range as a faint band. No legend needed for one series; the band is labeled directly.
+function weightChartSvg(data) {
+  const W = 340, H = 140, padL = 30, padR = 10, padT = 10, padB = 20;
+  const start = data[0].date, end = data[data.length - 1].date;
+  const span = Math.max(1, daysBetween(start, end));
+  const vals = data.flatMap((d) => [d.lbs, d.trend]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  // Pull the goal band into view only if it's reasonably close; otherwise the chart flattens.
+  if (weightGoal.high >= lo - 15) lo = Math.min(lo, weightGoal.low);
+  lo = Math.floor(lo - 1); hi = Math.ceil(hi + 1);
+  const x = (k) => padL + (daysBetween(start, k) / span) * (W - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+
+  // ~4 gridlines at round numbers
+  const step = [1, 2, 5, 10, 20].find((s) => (hi - lo) / s <= 4) || 25;
+  let grid = "";
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    grid += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="wc-grid"/>
+             <text x="${padL - 6}" y="${y(v) + 3}" class="wc-axis" text-anchor="end">${v}</text>`;
+  }
+
+  let band = "";
+  const bTop = Math.max(padT, y(weightGoal.high)), bBot = Math.min(H - padB, y(weightGoal.low));
+  if (bBot > padT && bTop < H - padB) {
+    band = `<rect x="${padL}" y="${bTop}" width="${W - padL - padR}" height="${Math.max(2, bBot - bTop)}" class="wc-band"/>
+            <text x="${W - padR - 4}" y="${bTop - 3 < padT + 8 ? bBot + 10 : bTop - 3}" class="wc-band-label" text-anchor="end">goal</text>`;
+  }
+
+  const path = data.map((d, i) => `${i ? "L" : "M"}${x(d.date).toFixed(1)},${y(d.trend).toFixed(1)}`).join(" ");
+  const dots = data.map((d) => `<circle cx="${x(d.date)}" cy="${y(d.lbs)}" r="3.5" class="wc-dot"/>`).join("");
+
+  const xLabels = `<text x="${padL}" y="${H - 4}" class="wc-axis">${shortDate(start)}</text>
+                   <text x="${W - padR}" y="${H - 4}" class="wc-axis" text-anchor="end">${shortDate(end)}</text>`;
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" class="wc-svg" role="img" aria-label="Weight trend from ${fmtLbs(data[0].trend)} to ${fmtLbs(data[data.length - 1].trend)} pounds">
+      ${grid}${band}
+      <path d="${path}" class="wc-line"/>
+      ${dots}
+      ${xLabels}
+      <line class="wc-cross hidden" y1="${padT}" y2="${H - padB}"/>
+      <circle class="wc-hover hidden" r="5"/>
+      <rect class="wc-hit" x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent"/>
+    </svg>
+    <div class="wc-tip font-mono hidden"></div>
+  `;
+}
+
+function wireWeightChart(data) {
+  const wrap = $("weight-chart");
+  const svg = wrap.querySelector("svg");
+  const tip = wrap.querySelector(".wc-tip");
+  const cross = svg.querySelector(".wc-cross");
+  const dot = svg.querySelector(".wc-hover");
+  const circles = svg.querySelectorAll(".wc-dot");
+  const pts = Array.from(circles).map((c) => ({ x: +c.getAttribute("cx") }));
+  const pathPts = svg.querySelector(".wc-line").getAttribute("d").split(/[ML ]+/).filter(Boolean).map((p) => p.split(",").map(Number));
+
+  const show = (clientX) => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((clientX - r.left) / r.width) * svg.viewBox.baseVal.width;
+    let best = 0;
+    pts.forEach((p, i) => { if (Math.abs(p.x - vx) < Math.abs(pts[best].x - vx)) best = i; });
+    const d = data[best];
+    const [px, py] = pathPts[best];
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px);
+    dot.setAttribute("cx", px); dot.setAttribute("cy", py);
+    cross.classList.remove("hidden"); dot.classList.remove("hidden");
+    tip.innerHTML = `<b>${shortDate(d.date)}</b><br>Weighed ${fmtLbs(d.lbs)} lb<br>Trend ${fmtLbs(d.trend)} lb`;
+    tip.classList.remove("hidden");
+    const left = (px / svg.viewBox.baseVal.width) * r.width;
+    tip.style.left = Math.min(Math.max(left, 60), r.width - 60) + "px";
+  };
+  const hide = () => { cross.classList.add("hidden"); dot.classList.add("hidden"); tip.classList.add("hidden"); };
+  const hit = svg.querySelector(".wc-hit");
+  hit.addEventListener("pointermove", (e) => show(e.clientX));
+  hit.addEventListener("pointerdown", (e) => show(e.clientX));
+  hit.addEventListener("pointerleave", hide);
+}
+
+let weightGoalEditorOpen = false;
+
+function openWeightGoalEditor() {
+  weightGoalEditorOpen = true;
+  const wrap = $("weight-goal");
+  wrap.innerHTML = "";
+  const mk = (val, ph) => {
+    const i = document.createElement("input");
+    i.type = "text"; i.inputMode = "decimal"; i.placeholder = ph; i.value = val;
+    return i;
+  };
+  const low = mk(weightGoal.low, "low"), high = mk(weightGoal.high, "high");
+  const save = document.createElement("button");
+  save.className = "save-btn"; save.textContent = "Save";
+  save.onclick = async () => {
+    const l = parseFloat(low.value), h = parseFloat(high.value) || l;
+    if (!l) return;
+    weightGoalEditorOpen = false;
+    await saveWeightGoal(Math.min(l, h), Math.max(l, h));
+    renderWeight();
+  };
+  const cancel = document.createElement("button");
+  cancel.textContent = "cancel";
+  cancel.onclick = () => { weightGoalEditorOpen = false; renderWeight(); };
+  wrap.append("Goal ", low, " – ", high, " lb ", save, " ", cancel);
+  low.focus();
+}
+
+function initWeight() {
+  $("weighin-btn").addEventListener("click", () => {
+    const form = $("weighin-form");
+    const opening = form.classList.contains("hidden");
+    form.classList.toggle("hidden", !opening);
+    if (opening) {
+      $("weighin-date").value = toLocalDateValue(new Date());
+      $("weighin-lbs").value = "";
+      $("weighin-lbs").focus();
+    }
+  });
+  $("weighin-lbs").addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/[^0-9.]/g, "");
+  });
+  $("weighin-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const lbs = parseFloat($("weighin-lbs").value);
+    const date = $("weighin-date").value || toLocalDateValue(new Date());
+    if (!lbs || lbs < 50 || lbs > 700) {
+      alert("Enter your weight in pounds, e.g. 263.4");
+      return;
+    }
+    try {
+      await saveWeight(date, Math.round(lbs * 10) / 10);
+      $("weighin-form").classList.add("hidden");
+      toast(`Weigh-in saved: ${fmtLbs(lbs)} lb`);
+    } catch (err) {
+      alert("Couldn't save weigh-in: " + err.message);
+    }
   });
 }
 
@@ -490,8 +788,10 @@ function render() {
       if (target) {
         const diff = target - total;
         const under = diff >= 0;
-        const good = moreIsBetter ? !under || diff === 0 : under;
-        return `${total.toLocaleString()} / ${target.toLocaleString()}${unit} <span class="${good ? "diff-under" : "diff-over"}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
+        const cls = moreIsBetter
+          ? (diff <= 0 ? "diff-under" : "diff-neutral")
+          : (under ? "diff-under" : "diff-over");
+        return `${total.toLocaleString()} / ${target.toLocaleString()}${unit} <span class="${cls}">(${under ? "−" : "+"}${Math.abs(diff).toLocaleString()})</span>`;
       }
       return `${total.toLocaleString()}${unit}`;
     };
@@ -1039,4 +1339,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initForm();
   initSearch();
   initExport();
+  initWeight();
 });
