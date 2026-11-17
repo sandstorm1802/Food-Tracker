@@ -654,6 +654,47 @@ function initWeight() {
       alert("Couldn't save weigh-in: " + err.message);
     }
   });
+  $("weight-import-btn").addEventListener("click", importWeights);
+}
+
+// Bulk import: one "date weight" pair per line. Accepts MM/DD/YYYY or YYYY-MM-DD,
+// ignores anything else on the line (times, "lb", etc.). Skips days already logged.
+async function importWeights() {
+  const status = $("weight-import-status");
+  const have = new Set(weights.map((w) => w.date));
+  const parsed = [], bad = [];
+  $("weight-import-text").value.split(/\r?\n/).forEach((line) => {
+    if (!line.trim()) return;
+    let date = null, rest = line;
+    let m = line.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) date = `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+    else if ((m = line.match(/(\d{4})-(\d{2})-(\d{2})/))) date = m[0];
+    if (m) rest = line.replace(m[0], "");
+    // Weight = the last number on the line in a sane range (skips times like 6:41).
+    const nums = (rest.match(/\d+(\.\d+)?/g) || []).map(Number).filter((n) => n >= 50 && n <= 700);
+    const lbs = nums[nums.length - 1];
+    if (!date || !lbs) bad.push(line.trim());
+    else parsed.push({ date, lbs: Math.round(lbs * 10) / 10 });
+  });
+  const toAdd = parsed.filter((p) => !have.has(p.date));
+  if (!toAdd.length) {
+    status.textContent = bad.length ? `Couldn't read: ${bad[0]}` : "Nothing new to add.";
+    return;
+  }
+  status.textContent = `Saving ${toAdd.length}…`;
+  try {
+    const col = window.db.collection("users").doc(currentUser.uid).collection("weights");
+    const batch = window.db.batch();
+    const ts = new Date().toISOString();
+    toAdd.forEach((p) => batch.set(col.doc(p.date), { date: p.date, lbs: p.lbs, timestamp: ts }));
+    await batch.commit();
+    const skipped = parsed.length - toAdd.length;
+    status.textContent = `Added ${toAdd.length}` + (skipped ? `, skipped ${skipped} already logged` : "") +
+      (bad.length ? `, ${bad.length} line(s) unreadable` : "") + ".";
+    if (!bad.length) $("weight-import-text").value = "";
+  } catch (err) {
+    status.textContent = "Import failed: " + err.message;
+  }
 }
 
 // ---------- Food history (for quick-add + autocomplete) ----------

@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=1" />
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png?v=1" />
 
-<link rel="stylesheet" href="styles.css?v=10" />
+<link rel="stylesheet" href="styles.css?v=11" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -104,6 +104,15 @@
           <summary class="font-mono">History</summary>
           <div id="weight-history-list"></div>
         </details>
+        <details id="weight-import" class="weight-history">
+          <summary class="font-mono">Bulk add past weigh-ins</summary>
+          <p class="weight-import-help font-mono">One per line: date and weight, e.g. <code>10/27/2026 242.5</code>. Days already logged are skipped.</p>
+          <textarea id="weight-import-text" class="font-mono" rows="6" placeholder="10/27/2026 242.5&#10;10/28/2026 245.0"></textarea>
+          <div class="weight-import-actions">
+            <button id="weight-import-btn" type="button" class="mini-btn mini-btn-solid font-mono">Import</button>
+            <span id="weight-import-status" class="font-mono"></span>
+          </div>
+        </details>
       </section>
 
       <div id="entry-list" class="entry-list"></div>
@@ -179,7 +188,7 @@
 
   <script src="firebase-config.js?v=2"></script>
   <script src="google-places-config.js?v=1"></script>
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

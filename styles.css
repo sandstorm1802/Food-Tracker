@@ -509,3 +509,10 @@ body.main-add-visible .fab { opacity: 0; transform: scale(0.8); pointer-events: 
 .hist-row span:nth-child(2) { margin-right: 12px; }
 #today-count { text-transform: none; letter-spacing: 0; }
 .diff-neutral { color: var(--muted-2); margin-left: 6px; }
+.weight-import-help { font-size: 0.7rem; color: var(--muted-2); margin: 8px 0 6px; }
+#weight-import-text {
+  width: 100%; box-sizing: border-box; font-size: 0.8rem; padding: 8px;
+  border: 1px solid #EDE5CF; border-radius: 6px; background: var(--card); color: var(--ink); resize: vertical;
+}
+.weight-import-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+#weight-import-status { font-size: 0.72rem; color: var(--muted-2); }
